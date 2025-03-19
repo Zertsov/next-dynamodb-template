@@ -99,6 +99,7 @@ export async function POST(req: NextRequest) {
           name: data.name,
           email: data.email,
           age: data.age ? Number(data.age) : undefined,
+          createdAt: new Date().toISOString(), // Add createdAt timestamp
         };
 
         // Handle TTL if provided

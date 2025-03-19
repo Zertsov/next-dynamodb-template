@@ -113,6 +113,7 @@ export async function createUserProfile(item: UserItem): Promise<UserItem> {
   }
 
   item.itemType = ItemType.PROFILE;
+  item.createdAt = new Date().toISOString();
 
   const command = new PutCommand({
     TableName: TABLE_NAME,

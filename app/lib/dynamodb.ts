@@ -7,17 +7,30 @@ import {
   QueryCommand,
   UpdateCommand,
   DeleteCommand,
+  QueryCommandInput,
 } from "@aws-sdk/lib-dynamodb";
+
+// Enum for item types
+export enum ItemType {
+  PROFILE = "PROFILE",
+  DETAIL = "DETAIL",
+  ACTIVITY = "ACTIVITY",
+}
 
 // Define types for our user items
 export interface UserItem {
-  id: string;
+  userId: string; // Partition key
+  sk: string; // Sort key
   name?: string;
   email?: string;
   age?: number;
   createdAt?: string;
   updatedAt?: string;
   expiresAt?: number; // TTL field - Unix timestamp in seconds
+  itemType?: string; // Used to distinguish between different item types
+  detailType?: string; // For DETAIL items
+  activityType?: string; // For ACTIVITY items
+  description?: string; // Generic field for various items
   [key: string]: unknown;
 }
 
@@ -50,6 +63,27 @@ export const docClient = DynamoDBDocumentClient.from(client, {
 export const TABLE_NAME = process.env.DYNAMODB_TABLE || "Users";
 
 /**
+ * Generate a sort key for a specific item type
+ */
+export function generateSortKey(
+  itemType: ItemType,
+  secondaryType?: string
+): string {
+  const timestamp = new Date().toISOString();
+
+  switch (itemType) {
+    case ItemType.PROFILE:
+      return `${ItemType.PROFILE}#${timestamp}`;
+    case ItemType.DETAIL:
+      return `${ItemType.DETAIL}#${secondaryType || "DEFAULT"}#${timestamp}`;
+    case ItemType.ACTIVITY:
+      return `${ItemType.ACTIVITY}#${secondaryType || "DEFAULT"}#${timestamp}`;
+    default:
+      return `${itemType}#${timestamp}`;
+  }
+}
+
+/**
  * Calculate TTL timestamp for a given number of seconds in the future
  * @param secondsFromNow Number of seconds from now when the item should expire
  * @returns Unix timestamp in seconds (required format for DynamoDB TTL)
@@ -69,23 +103,120 @@ export function formatTTLDate(ttlTimestamp: number): string {
   return new Date(ttlTimestamp * 1000).toLocaleString();
 }
 
-// Helper functions for DynamoDB operations
+/**
+ * Create a new user profile
+ */
+export async function createUserProfile(item: UserItem): Promise<UserItem> {
+  // If sk is not provided, generate a default sort key for PROFILE
+  if (!item.sk) {
+    item.sk = generateSortKey(ItemType.PROFILE);
+  }
 
-// Put a new item in the table
-export async function putItem(item: UserItem) {
+  item.itemType = ItemType.PROFILE;
+
   const command = new PutCommand({
     TableName: TABLE_NAME,
     Item: item,
   });
 
+  await docClient.send(command);
+  return item;
+}
+
+/**
+ * Add a detail item for a user
+ */
+export async function addUserDetail(
+  userId: string,
+  detailType: string,
+  data: Record<string, string | number | boolean | null>
+): Promise<UserItem> {
+  const item: UserItem = {
+    userId,
+    sk: generateSortKey(ItemType.DETAIL, detailType),
+    itemType: ItemType.DETAIL,
+    detailType,
+    ...data,
+    createdAt: new Date().toISOString(),
+  };
+
+  const command = new PutCommand({
+    TableName: TABLE_NAME,
+    Item: item,
+  });
+
+  await docClient.send(command);
+  return item;
+}
+
+/**
+ * Add an activity item for a user
+ */
+export async function addUserActivity(
+  userId: string,
+  activityType: string,
+  data: Record<string, string | number | boolean | null>
+): Promise<UserItem> {
+  const item: UserItem = {
+    userId,
+    sk: generateSortKey(ItemType.ACTIVITY, activityType),
+    itemType: ItemType.ACTIVITY,
+    activityType,
+    ...data,
+    createdAt: new Date().toISOString(),
+  };
+
+  const command = new PutCommand({
+    TableName: TABLE_NAME,
+    Item: item,
+  });
+
+  await docClient.send(command);
+  return item;
+}
+
+// Get a single item by its composite key (userId + sk)
+export async function getItem(userId: string, sk: string) {
+  const command = new GetCommand({
+    TableName: TABLE_NAME,
+    Key: { userId, sk },
+  });
+
   return docClient.send(command);
 }
 
-// Get a single item by its primary key
-export async function getItem(id: string) {
-  const command = new GetCommand({
+// Query items by userId and optional sort key prefix
+export async function queryUserItems(userId: string, skPrefix?: string) {
+  const params: QueryCommandInput = {
     TableName: TABLE_NAME,
-    Key: { id },
+    KeyConditionExpression: "userId = :userId",
+    ExpressionAttributeValues: {
+      ":userId": userId,
+    },
+  };
+
+  // If a sort key prefix is provided, add it to the query
+  if (skPrefix) {
+    params.KeyConditionExpression += " AND begins_with(sk, :skPrefix)";
+    params.ExpressionAttributeValues = {
+      ...params.ExpressionAttributeValues,
+      ":skPrefix": skPrefix,
+    };
+  }
+
+  const command = new QueryCommand(params);
+  return docClient.send(command);
+}
+
+// Query by sort key pattern using the GSI
+export async function queryBySortKey(skPrefix: string) {
+  const command = new QueryCommand({
+    TableName: TABLE_NAME,
+    IndexName: "SKIndex",
+    KeyConditionExpression: "begins_with(sk, :skPrefix)",
+    ExpressionAttributeValues: {
+      ":skPrefix": skPrefix,
+    },
   });
 
   return docClient.send(command);
@@ -100,28 +231,16 @@ export async function scanTable() {
   return docClient.send(command);
 }
 
-// Query items using a key condition
-export async function queryItems(keyCondition: { id: string }) {
-  const command = new QueryCommand({
-    TableName: TABLE_NAME,
-    KeyConditionExpression: "id = :id",
-    ExpressionAttributeValues: {
-      ":id": keyCondition.id,
-    },
-  });
-
-  return docClient.send(command);
-}
-
 // Update an existing item
 export async function updateItem(
-  id: string,
+  userId: string,
+  sk: string,
   updateExpression: string,
   attributeValues: Record<string, string | number | boolean>
 ) {
   const command = new UpdateCommand({
     TableName: TABLE_NAME,
-    Key: { id },
+    Key: { userId, sk },
     UpdateExpression: updateExpression,
     ExpressionAttributeValues: attributeValues,
     ReturnValues: "ALL_NEW",
@@ -131,10 +250,10 @@ export async function updateItem(
 }
 
 // Delete an item
-export async function deleteItem(id: string) {
+export async function deleteItem(userId: string, sk: string) {
   const command = new DeleteCommand({
     TableName: TABLE_NAME,
-    Key: { id },
+    Key: { userId, sk },
   });
 
   return docClient.send(command);

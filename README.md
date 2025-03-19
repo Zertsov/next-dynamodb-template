@@ -9,11 +9,15 @@ This is a demonstration project showing how to use DynamoDB with a Next.js appli
 - React UI for interacting with the DynamoDB API
 - TypeScript support throughout the application
 - Time-to-Live (TTL) support for automatic item expiration
+- **Composite Key Model**: Uses both partition and sort keys
+- **Sort Key Patterns**: Demonstrates single-table design with different entity types
+- **Global Secondary Index**: For querying by sort key patterns
 - Demonstrates various DynamoDB operations:
-  - PutItem (Create)
-  - GetItem (Read single item)
+  - Create Profiles, Details, and Activities
+  - GetItem (Read single item by composite key)
   - Scan (Read all items)
-  - Query (Search items)
+  - Query by User ID (partition key)
+  - Query by Sort Key patterns (using GSI)
   - UpdateItem (Update)
   - DeleteItem (Delete)
 
@@ -160,84 +164,210 @@ If you're experiencing connection issues with DynamoDB:
 Once the application is running, visit http://localhost:3000 in your browser to access the UI.
 
 The UI allows you to:
-- Create new users
-- Get a user by ID
-- Query users
-- Update users
-- Delete users
+- Create user profiles, add details, and add activities
+- Get an item by its composite key (userId + sort key)
+- Query items by userId with optional sort key prefixes
+- Query items by sort key patterns using the Global Secondary Index
+- Update items
+- Delete items
 - Set Time-to-Live (TTL) values for automatic item expiration
-- See a list of all users in the database with their expiration times
+- Filter and view items with different organization options
+
+## Understanding DynamoDB Composite Keys and Sort Keys
+
+This project demonstrates advanced DynamoDB modeling techniques, particularly the use of composite keys (partition key + sort key) and Global Secondary Indexes.
+
+### Table Structure
+
+The DynamoDB table is structured with:
+- **Partition Key** (HASH): `userId` - Identifies the user
+- **Sort Key** (RANGE): `sk` - Organizes different types of items and enables hierarchical data modeling
+- **Global Secondary Index**: Named `SKIndex`, allows querying by sort key patterns
+
+### Sort Key Patterns
+
+The application uses these sort key patterns:
+
+- **Profiles**: `PROFILE#<timestamp>` - Basic user profile information
+- **Details**: `DETAIL#<detailType>#<timestamp>` - Additional user details with type categorization 
+- **Activities**: `ACTIVITY#<activityType>#<timestamp>` - User activities with type categorization
+
+This structure enables:
+1. Storing different entity types in the same table (single-table design)
+2. Efficient querying of all items for a specific user 
+3. Filtering items by type using sort key prefixes
+4. Querying across users for specific item types using the GSI
+
+### Query Patterns
+
+The demo supports these query patterns:
+
+1. **Get a specific item**: Get an item by its exact partition key and sort key
+2. **Query all items for a user**: Get all items for a specific userId
+3. **Query filtered items for a user**: Get items for a userId with a specific sort key prefix
+4. **Query by sort key pattern**: Get items across users with a specific sort key pattern (using GSI)
+
+### Example Operations
+
+#### Creating Different Item Types
+
+```json
+// Create a user profile
+{
+  "operation": "createProfile",
+  "userId": "user123",
+  "name": "John Doe",
+  "email": "john@example.com"
+}
+
+// Add a detail to a user
+{
+  "operation": "addDetail",
+  "userId": "user123",
+  "detailType": "address",
+  "description": "123 Main St, Anytown, USA"
+}
+
+// Add an activity for a user
+{
+  "operation": "addActivity",
+  "userId": "user123",
+  "activityType": "login",
+  "description": "User logged in from mobile device"
+}
+```
+
+#### Querying Items
+
+```json
+// Get all items for a user
+{
+  "operation": "queryUser",
+  "userId": "user123"
+}
+
+// Get all DETAIL items for a user
+{
+  "operation": "queryUser",
+  "userId": "user123",
+  "skPrefix": "DETAIL"
+}
+
+// Get all login activities for a user
+{
+  "operation": "queryUser",
+  "userId": "user123",
+  "skPrefix": "ACTIVITY#login"
+}
+
+// Get address details for all users (using GSI)
+{
+  "operation": "queryBySort",
+  "skPrefix": "DETAIL#address"
+}
+```
 
 ## API Endpoints
 
 ### GET /api/users
 
-Returns all users in the database.
+Returns items from the database with optional filtering:
+
+- `GET /api/users` - Returns all items (scan operation)
+- `GET /api/users?userId=user123` - Returns all items for a specific user
+- `GET /api/users?userId=user123&skPrefix=DETAIL` - Returns all detail items for a user
+- `GET /api/users?queryType=bySort&skPrefix=ACTIVITY` - Returns all activity items across users
 
 ### POST /api/users
 
 Performs various DynamoDB operations based on the `operation` field in the request body.
 
-#### Create a user
+#### Create a user profile
 
 ```json
 {
-  "operation": "create",
+  "operation": "createProfile",
+  "userId": "user123",  // Optional, will be auto-generated if omitted
   "name": "John Doe",
   "email": "john@example.com",
   "age": 30,
-  "ttl": 3600
+  "ttl": 3600 // Optional, specifies TTL in seconds
 }
 ```
 
-The `ttl` field is optional and specifies the number of seconds until the item should expire.
+#### Add a user detail
 
-#### Get a user by ID
+```json
+{
+  "operation": "addDetail",
+  "userId": "user123",
+  "detailType": "address",
+  "description": "123 Main St, Anytown, USA",
+  "ttl": 3600 // Optional
+}
+```
+
+#### Add a user activity
+
+```json
+{
+  "operation": "addActivity",
+  "userId": "user123",
+  "activityType": "login",
+  "description": "User logged in from mobile device",
+  "ttl": 3600 // Optional
+}
+```
+
+#### Get an item by composite key
 
 ```json
 {
   "operation": "get",
-  "id": "user-id"
+  "userId": "user123",
+  "sk": "PROFILE#2023-01-01T12:00:00.000Z"
 }
 ```
 
-#### Query users
+#### Query items for a user
 
 ```json
 {
-  "operation": "query",
-  "id": "user-id"
+  "operation": "queryUser",
+  "userId": "user123",
+  "skPrefix": "DETAIL" // Optional, filters by sort key prefix
 }
 ```
 
-#### Update a user
+#### Query by sort key pattern (using GSI)
+
+```json
+{
+  "operation": "queryBySort",
+  "skPrefix": "ACTIVITY#login"
+}
+```
+
+#### Update an item
 
 ```json
 {
   "operation": "update",
-  "id": "user-id",
+  "userId": "user123",
+  "sk": "PROFILE#2023-01-01T12:00:00.000Z",
   "name": "Updated Name",
   "email": "updated@example.com",
-  "ttl": 7200
+  "ttl": 7200 // Optional
 }
 ```
 
-You can update the TTL by providing a new value, or remove the TTL by setting it to `null`:
-
-```json
-{
-  "operation": "update",
-  "id": "user-id",
-  "ttl": null
-}
-```
-
-#### Delete a user
+#### Delete an item
 
 ```json
 {
   "operation": "delete",
-  "id": "user-id"
+  "userId": "user123",
+  "sk": "PROFILE#2023-01-01T12:00:00.000Z"
 }
 ```
 
@@ -245,12 +375,12 @@ You can update the TTL by providing a new value, or remove the TTL by setting it
 
 This project demonstrates several key aspects of working with DynamoDB:
 
-1. **Single-Table Design**: All data is stored in a single table with a simple primary key
-2. **Primary Key**: The table uses a simple primary key (just a partition key, no sort key)
-3. **DynamoDB Operations**: Examples of the main operations (PutItem, GetItem, Scan, Query, UpdateItem, DeleteItem)
-4. **Expression Attributes**: Used in the update operation to modify specific fields
-5. **DynamoDB Document Client**: Using the higher-level DocumentClient for easier JavaScript object handling
-6. **Time-to-Live (TTL)**: Automatic expiration of items based on a timestamp attribute
+1. **Single-Table Design**: All data types (profiles, details, activities) are stored in a single table
+2. **Composite Primary Key**: The table uses a composite key (partition key + sort key)
+3. **Sort Key Patterns**: Different patterns create hierarchical relationships between items
+4. **Global Secondary Indexes**: Enable additional access patterns beyond the primary key
+5. **Time-to-Live (TTL)**: Automatic item expiration for temporary data
+6. **DynamoDB Operations**: Examples of all major DynamoDB operations with composite keys
 
 ### About Time-to-Live (TTL)
 

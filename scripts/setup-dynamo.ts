@@ -27,9 +27,29 @@ const client = new DynamoDBClient({
 
 const tableParams: CreateTableCommandInput = {
   TableName: tableName,
-  AttributeDefinitions: [{ AttributeName: "id", AttributeType: "S" }],
-  KeySchema: [{ AttributeName: "id", KeyType: "HASH" }],
+  AttributeDefinitions: [
+    { AttributeName: "userId", AttributeType: "S" },
+    { AttributeName: "sk", AttributeType: "S" },
+  ],
+  KeySchema: [
+    { AttributeName: "userId", KeyType: "HASH" }, // Partition key
+    { AttributeName: "sk", KeyType: "RANGE" }, // Sort key
+  ],
   ProvisionedThroughput: { ReadCapacityUnits: 5, WriteCapacityUnits: 5 },
+  // Add a Global Secondary Index to query by sort key pattern
+  GlobalSecondaryIndexes: [
+    {
+      IndexName: "SKIndex",
+      KeySchema: [
+        { AttributeName: "sk", KeyType: "HASH" },
+        { AttributeName: "userId", KeyType: "RANGE" },
+      ],
+      Projection: {
+        ProjectionType: "ALL",
+      },
+      ProvisionedThroughput: { ReadCapacityUnits: 5, WriteCapacityUnits: 5 },
+    },
+  ],
 };
 
 /**
@@ -135,10 +155,16 @@ async function setupDynamoDB() {
 
     if (tableExists) {
       console.log(`Table '${tableName}' already exists.`);
+      console.log(
+        `Note: To see the new schema with sort keys, delete the existing table first:`
+      );
+      console.log(`pnpm dynamodb:stop && pnpm start:docker`);
     } else {
       // Create the table
       await client.send(new CreateTableCommand(tableParams));
-      console.log(`Table '${tableName}' created successfully.`);
+      console.log(
+        `Table '${tableName}' created successfully with composite key (partition + sort key).`
+      );
       tableExists = true;
     }
 
@@ -149,9 +175,20 @@ async function setupDynamoDB() {
 
     console.log(`
 DynamoDB is now set up with a "${tableName}" table that has:
-- Primary key: "id" (String)
+- Composite Key: 
+  - Partition Key (HASH): "userId" (String)
+  - Sort Key (RANGE): "sk" (String)
+- Global Secondary Index: "SKIndex" (query by sort key patterns)
 - Read/Write capacity: 5 units
 - TTL enabled with attribute: "expiresAt"
+
+How Sort Keys are used in this demo:
+- For basic user profiles: sk = "PROFILE#<timestamp>"
+- For user details: sk = "DETAIL#<type>#<timestamp>"
+- For user activity: sk = "ACTIVITY#<activityType>#<timestamp>"
+
+This demonstrates how a single table can use sort keys to store different entity types
+and create relationships between them, following DynamoDB's single-table design pattern.
 
 You can now use the API endpoints to:
 - POST to /api/users with operation: "create", "get", "query", "update", or "delete"

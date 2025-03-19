@@ -63,6 +63,7 @@ export default function DynamoDemo() {
   // Fetch all items on component mount
   useEffect(() => {
     fetchItems();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Fetch items based on view mode and filters

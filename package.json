@@ -6,22 +6,35 @@
     "dev": "next dev --turbopack",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "dynamodb:start": "docker run -d -p 8000:8000 --name local-dynamodb amazon/dynamodb-local",
+    "dynamodb:stop": "docker stop local-dynamodb && docker rm local-dynamodb",
+    "dynamodb:setup": "pnpm exec tsx scripts/setup-dynamo.ts",
+    "setup-and-start": "pnpm run dynamodb:start && sleep 3 && pnpm run dynamodb:setup && pnpm run dev",
+    "wait-and-setup": "sleep 3 && pnpm run dynamodb:setup && pnpm run dev",
+    "start:docker": "./docker-setup.sh"
   },
   "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.767.0",
+    "@aws-sdk/lib-dynamodb": "^3.767.0",
+    "aws-sdk": "^2.1692.0",
+    "next": "15.2.3",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "next": "15.2.3"
+    "uuid": "^11.1.0"
   },
   "devDependencies": {
-    "typescript": "^5",
+    "@eslint/eslintrc": "^3",
+    "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "@tailwindcss/postcss": "^4",
-    "tailwindcss": "^4",
+    "@types/uuid": "^10.0.0",
     "eslint": "^9",
     "eslint-config-next": "15.2.3",
-    "@eslint/eslintrc": "^3"
-  }
+    "tailwindcss": "^4",
+    "tsx": "^4.19.3",
+    "typescript": "^5"
+  },
+  "packageManager": "pnpm@8.15.7+sha512.c85cd21b6da10332156b1ca2aa79c0a61ee7ad2eb0453b88ab299289e9e8ca93e6091232b25c07cbf61f6df77128d9c849e5c9ac6e44854dbd211c49f3a67adc"
 }
